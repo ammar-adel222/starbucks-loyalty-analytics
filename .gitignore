@@ -1,0 +1,17 @@
+# Local source data
+/profile.json
+/portfolio.json
+/transcript.json
+/archive.zip
+
+# Notebook and Python working files
+.ipynb_checkpoints/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
