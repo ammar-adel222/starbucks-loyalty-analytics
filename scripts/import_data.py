@@ -61,13 +61,14 @@ def read_sources(data_dir):
 
 
 def validate(connection):
-    checks = connection.execute(
-        (PROJECT_DIR / "sql" / "003_validation.sql").read_text(encoding="utf-8")
-    ).fetchall()
-    for name, actual, expected, passed in checks:
-        print(f"{'PASS' if passed else 'FAIL'} {name}: {actual} (expected {expected})")
-    if any(not row[3] for row in checks):
-        raise ValueError("Database reconciliation failed. Import rolled back.")
+    for filename in ("003_validation.sql", "007_funnel_validation.sql"):
+        checks = connection.execute(
+            (PROJECT_DIR / "sql" / filename).read_text(encoding="utf-8")
+        ).fetchall()
+        for name, actual, expected, passed in checks:
+            print(f"{'PASS' if passed else 'FAIL'} {name}: {actual} (expected {expected})")
+        if any(not row[3] for row in checks):
+            raise ValueError("Database reconciliation failed. Import rolled back.")
 
 
 def import_data(data_dir, env_file):
@@ -76,6 +77,7 @@ def import_data(data_dir, env_file):
         # Serialize initial imports and reruns, including schema creation.
         connection.execute("SELECT pg_advisory_xact_lock(hashtext('starbucks_loyalty_import'))")
         connection.execute((PROJECT_DIR / "sql" / "001_schema.sql").read_text(encoding="utf-8"))
+        connection.execute((PROJECT_DIR / "sql" / "005_offer_funnel.sql").read_text(encoding="utf-8"))
         previous = connection.execute("SELECT manifest FROM loyalty.ingestion_batches").fetchall()
         if previous:
             if len(previous) != 1 or previous[0][0] != manifest:

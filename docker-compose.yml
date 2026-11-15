@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17.12
+    shm_size: 256mb
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-starbucks}
       POSTGRES_USER: ${POSTGRES_USER:-loyalty}

@@ -63,19 +63,59 @@ All project tables and views are in the `loyalty` schema.
 | `events` | One recorded activity, with customer and optional offer references |
 | `event_details` | One event joined to its customer and offer attributes |
 | `transactions` | One purchase event |
+| `offer_receipts` | One receipt with its expiry and observation window |
+| `offer_event_candidates` | One possible link between a view/completion and a delivery |
+| `offer_event_matches` | One view/completion with its matching status |
+| `offer_deliveries` | One delivery with its matched activity and eligibility flags |
+| `offer_funnel_by_offer` | One offer with delivery counts, denominators, and rates |
 
 `profile.id` and `transcript.person` become `customer_id`. `portfolio.id` and either offer-ID payload spelling become `offer_id`. Source age 118 becomes an unknown cleaned age while `age_raw` preserves the original value. Missing demographics remain SQL `NULL`. Amounts use `NUMERIC`, offer duration uses days, and event time uses hours from the observation start.
 
 Transactions carry a customer and purchase amount. Their offer ID is `NULL`, so the joined view uses a left join to offers. Source event repetitions are retained and individually traceable. The channel bridge is queried separately or aggregated to avoid multiplying events.
 
-The SQL files define the schema (`001`), transformations (`002`), reconciliation checks (`003`), and example joins (`004`). The Python importer runs the first three automatically.
+The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), and funnel checks (`007`). The importer applies the schema and funnel views, loads new data when needed, and runs both sets of checks. Rerun the importer to add the funnel to an existing import.
+
+## Delivery-level offer funnel
+
+Each receipt is a separate delivery, including repeated receipts of the same offer by a customer. Views and completions become candidates when their customer and offer match and their recorded hour falls between receipt and expiry, including both endpoints.
+
+Expiry is inclusive because the transcript contains completion events exactly at expiry. The audit keeps those events visible and reports how many candidate counts would change with an exclusive expiry rule. It identifies 557 completion events and 563 view events affected by this choice.
+
+An event is assigned only when it has exactly one candidate delivery. Events with multiple candidates remain ambiguous, and every affected delivery is flagged. Source event order does not establish within-hour chronology.
+
+For the main rates, a delivery must have an expiry at or before the last observed event hour (714), no ambiguous candidate events, and a unique receipt timestamp for its customer and offer. This is a conservative follow-up boundary based on the available log. Excluding ambiguous deliveries can change the composition of the comparison population; counts remain visible beside the rates.
+
+- View rate is viewed eligible deliveries divided by all eligible deliveries.
+- Any-completion rate is completed eligible reward-bearing deliveries divided by eligible reward-bearing deliveries.
+- Completion-after-view rate uses the same denominator and requires the first matched view to precede the first matched completion strictly.
+- Same-hour views/completions, views after first completion, and completions with no recorded view have separate categories.
+- Informational offers have view rates. Their completion rates are SQL `NULL`.
+
+Repeated completion events contribute to event counts and convert a delivery once. The timing categories use the first uniquely matched completion. Activity summaries on excluded deliveries are partial when events are ambiguous, so inspect their audit rows before interpreting them. Channel comparisons describe the combination attached to an offer.
+
+Current delivery coverage is 76,277 receipts, 66,041 fully observable windows, and 61,839 eligible deliveries. There are 5,219 deliveries affected by ambiguous activity, including some with incomplete follow-up. These exclusion counts overlap.
+
+| Offer type | Eligible deliveries | View rate | Any completion | Completion after view |
+|---|---:|---:|---:|---:|
+| BOGO | 26,089 | 83.44% | 50.67% | 31.58% |
+| Discount | 20,688 | 68.82% | 58.58% | 37.41% |
+| Informational | 15,062 | 65.00% | — | — |
+
+Among eligible reward-bearing deliveries, 15,979 had a view before first completion, 2,115 had a view in the same hour, 2,901 had a later first view, and 4,343 completed with no recorded view. Another 21,439 had no matched completion. These are observed campaign outcomes; a campaign experiment would be needed to estimate incremental purchasing.
+
+```powershell
+python scripts/import_data.py
+Get-Content sql/006_funnel_queries.sql | docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
+python -m unittest discover -s tests -v
+```
+
+The eight regression checks create and remove a disposable database on the configured PostgreSQL server. They cover expiry boundaries, overlapping receipts, same-hour events, missing and later views, repeated completions, incomplete follow-up, and informational offers. The Docker configuration supplies the database-creation permission they require.
 
 ## Planned work
 
-1. Define delivery-level offer funnels and investigate completions without a prior view.
-2. Analyze purchase retention and RFM segments.
-3. Compare campaigns with hypothesis tests.
-4. Build a Metabase dashboard using Docker and write a one-page growth memo.
+1. Analyze purchase retention and RFM segments.
+2. Compare campaigns with hypothesis tests.
+3. Build a Metabase dashboard using Docker and write a one-page growth memo.
 
 Future ML applications include personalized offer targeting and repeat-purchase prediction, following completion of the analytics work.
 
