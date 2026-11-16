@@ -68,12 +68,18 @@ All project tables and views are in the `loyalty` schema.
 | `offer_event_matches` | One view/completion with its matching status |
 | `offer_deliveries` | One delivery with its matched activity and eligibility flags |
 | `offer_funnel_by_offer` | One offer with delivery counts, denominators, and rates |
+| `customer_purchase_cohorts` | One purchaser with their first observed purchase week |
+| `weekly_purchase_retention` | One cohort and one complete target week |
+| `customer_rfm` | One customer's full-period RFM snapshot |
+| `rfm_segment_summary` | One snapshot segment's size and purchase contribution |
+| `customer_rfm_before_offers` | One customer and receipt hour, with preceding seven-day activity |
+| `offer_funnel_by_rfm` | One pre-offer segment and offer, with campaign denominators and rates |
 
 `profile.id` and `transcript.person` become `customer_id`. `portfolio.id` and either offer-ID payload spelling become `offer_id`. Source age 118 becomes an unknown cleaned age while `age_raw` preserves the original value. Missing demographics remain SQL `NULL`. Amounts use `NUMERIC`, offer duration uses days, and event time uses hours from the observation start.
 
 Transactions carry a customer and purchase amount. Their offer ID is `NULL`, so the joined view uses a left join to offers. Source event repetitions are retained and individually traceable. The channel bridge is queried separately or aggregated to avoid multiplying events.
 
-The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), and funnel checks (`007`). The importer applies the schema and funnel views, loads new data when needed, and runs both sets of checks. Rerun the importer to add the funnel to an existing import.
+The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), funnel checks (`007`), retention/RFM views (`008`), customer-growth queries (`009`), and customer-growth checks (`010`). The importer applies the schema and analytics views, loads new data when needed, and runs all three sets of checks. Rerun it to add analytics to an existing import.
 
 ## Delivery-level offer funnel
 
@@ -109,13 +115,28 @@ Get-Content sql/006_funnel_queries.sql | docker compose exec -T postgres sh -c '
 python -m unittest discover -s tests -v
 ```
 
-The eight regression checks create and remove a disposable database on the configured PostgreSQL server. They cover expiry boundaries, overlapping receipts, same-hour events, missing and later views, repeated completions, incomplete follow-up, and informational offers. The Docker configuration supplies the database-creation permission they require.
+The regression checks create and remove disposable databases on the configured PostgreSQL server. The Docker configuration supplies the database-creation permission they require.
+
+## Retention and customer segments
+
+The [customer growth findings](docs/customer_growth_findings.md) explain the cohort results, RFM definitions, segment-level offer response, and proposed campaign experiments.
+
+Weekly retention uses first-observed-purchase cohorts and complete 168-hour calendar weeks anchored at hour zero. The full-period RFM snapshot covers every customer through hour 714. Campaign RFM uses only the seven days before receipt and excludes same-hour transactions. Deliveries before hour 168 receive an insufficient-history label and have no campaign-rate denominator.
+
+Recent activity means a purchase within 72 hours. Frequency and amount cutoffs use each window's purchasing population at the 75th percentile. Snapshot cutoffs are 11 purchases and $150.94, with 422 customers having no purchase. The snapshot measures are period activity; pre-offer measures support campaign comparisons without future purchases entering the features.
+
+```powershell
+python scripts/import_data.py
+Get-Content sql/009_retention_rfm_queries.sql | docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
+python -m unittest discover -s tests -v
+```
+
+There are 17 integration checks. They cover both the existing funnel and retention/RFM boundary cases, including incomplete weeks, zero-activity cells, tied metrics, nonbuyers, and same-hour/future-purchase leakage.
 
 ## Planned work
 
-1. Analyze purchase retention and RFM segments.
-2. Compare campaigns with hypothesis tests.
-3. Build a Metabase dashboard using Docker and write a one-page growth memo.
+1. Compare campaigns with hypothesis tests.
+2. Build a Metabase dashboard using Docker and write a one-page growth memo.
 
 Future ML applications include personalized offer targeting and repeat-purchase prediction, following completion of the analytics work.
 

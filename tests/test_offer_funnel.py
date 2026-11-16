@@ -20,7 +20,9 @@ def drop_test_database(settings, name):
         connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
 
 
-class OfferFunnelTests(unittest.TestCase):
+class DatabaseTestCase(unittest.TestCase):
+    horizon_hour = 100
+
     @classmethod
     def setUpClass(cls):
         settings = connection_settings(PROJECT_DIR / ".env")
@@ -30,7 +32,7 @@ class OfferFunnelTests(unittest.TestCase):
         cls.addClassCleanup(drop_test_database, settings, name)
         cls.connection = psycopg.connect(**dict(settings, dbname=name), row_factory=dict_row)
         cls.addClassCleanup(cls.connection.close)
-        for filename in ("001_schema.sql", "005_offer_funnel.sql"):
+        for filename in ("001_schema.sql", "005_offer_funnel.sql", "008_retention_rfm.sql"):
             cls.connection.execute((PROJECT_DIR / "sql" / filename).read_text(encoding="utf-8"))
         cls.connection.commit()
 
@@ -40,13 +42,10 @@ class OfferFunnelTests(unittest.TestCase):
         self.connection.execute(
             "INSERT INTO loyalty.ingestion_batches (batch_id, manifest) VALUES (%s, '{}')", (self.batch_id,)
         )
-        source = self.raw("profile.json", {"id": "C"})
-        self.connection.execute(
-            "INSERT INTO loyalty.customers (customer_id, member_since, source_record_id) VALUES ('C', '2017-01-01', %s)",
-            (source,),
-        )
+        self.customer("C")
         self.offer("O", "discount")
-        self.event("transaction", 100)
+        if self.horizon_hour is not None:
+            self.event("transaction", self.horizon_hour)
 
     def tearDown(self):
         self.connection.rollback()
@@ -65,20 +64,29 @@ class OfferFunnelTests(unittest.TestCase):
         )
         self.connection.execute("INSERT INTO loyalty.offer_channels VALUES (%s, 'email'), (%s, 'mobile')", (offer_id, offer_id))
 
-    def event(self, event_type, hour, offer_id="O"):
+    def customer(self, customer_id):
+        source = self.raw("profile.json", {"id": customer_id})
+        self.connection.execute(
+            "INSERT INTO loyalty.customers (customer_id, member_since, source_record_id) VALUES (%s, '2017-01-01', %s)",
+            (customer_id, source),
+        )
+
+    def event(self, event_type, hour, offer_id="O", customer_id="C", amount=10):
         is_purchase = event_type == "transaction"
         source = self.raw("transcript.json", {"event": event_type})
         return self.connection.execute(
             """INSERT INTO loyalty.events
                (customer_id, event_type, time_hours, offer_id, transaction_amount, completion_reward, source_record_id)
-               VALUES ('C', %s, %s, %s, %s, %s, %s) RETURNING event_id""",
-            (event_type, hour, None if is_purchase else offer_id,
-             10 if is_purchase else None, 2 if event_type == "offer completed" else None, source),
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING event_id""",
+            (customer_id, event_type, hour, None if is_purchase else offer_id,
+             amount if is_purchase else None, 2 if event_type == "offer completed" else None, source),
         ).fetchone()["event_id"]
 
     def delivery(self, delivery_id):
         return self.connection.execute("SELECT * FROM loyalty.offer_deliveries WHERE delivery_id = %s", (delivery_id,)).fetchone()
 
+
+class OfferFunnelTests(DatabaseTestCase):
     def test_repeated_completion_counts_as_one_converted_delivery(self):
         receipt = self.event("offer received", 0)
         self.event("offer viewed", 6)
