@@ -1,2 +1,4 @@
 pandas>=2.2,<4
 psycopg[binary]==3.3.9
+numpy>=1.26,<3
+statsmodels>=0.14,<0.16

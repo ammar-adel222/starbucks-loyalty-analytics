@@ -74,12 +74,13 @@ All project tables and views are in the `loyalty` schema.
 | `rfm_segment_summary` | One snapshot segment's size and purchase contribution |
 | `customer_rfm_before_offers` | One customer and receipt hour, with preceding seven-day activity |
 | `offer_funnel_by_rfm` | One pre-offer segment and offer, with campaign denominators and rates |
+| `campaign_comparison_inputs` | One eligible reward-bearing delivery for statistical comparison |
 
 `profile.id` and `transcript.person` become `customer_id`. `portfolio.id` and either offer-ID payload spelling become `offer_id`. Source age 118 becomes an unknown cleaned age while `age_raw` preserves the original value. Missing demographics remain SQL `NULL`. Amounts use `NUMERIC`, offer duration uses days, and event time uses hours from the observation start.
 
 Transactions carry a customer and purchase amount. Their offer ID is `NULL`, so the joined view uses a left join to offers. Source event repetitions are retained and individually traceable. The channel bridge is queried separately or aggregated to avoid multiplying events.
 
-The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), funnel checks (`007`), retention/RFM views (`008`), customer-growth queries (`009`), and customer-growth checks (`010`). The importer applies the schema and analytics views, loads new data when needed, and runs all three sets of checks. Rerun it to add analytics to an existing import.
+The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), funnel checks (`007`), retention/RFM views (`008`), customer-growth queries (`009`), customer-growth checks (`010`), campaign comparison inputs (`011`), and campaign input checks (`012`). The importer applies the schema and analytics views, loads new data when needed, and runs all four sets of checks. Rerun it to add analytics to an existing import.
 
 ## Delivery-level offer funnel
 
@@ -131,12 +132,26 @@ Get-Content sql/009_retention_rfm_queries.sql | docker compose exec -T postgres 
 python -m unittest discover -s tests -v
 ```
 
-There are 17 integration checks. They cover both the existing funnel and retention/RFM boundary cases, including incomplete weeks, zero-activity cells, tied metrics, nonbuyers, and same-hour/future-purchase leakage.
+The regression suite covers funnel and retention/RFM boundaries, including incomplete weeks, zero-activity cells, tied metrics, nonbuyers, and same-hour/future-purchase leakage.
+
+## Campaign hypothesis tests
+
+The [campaign package findings](docs/campaign_comparison_findings.md) compare all three catalog pairs sharing the same offer type, spending requirement, and reward. Durations and channel combinations vary, so the comparison estimates the association of the complete packages with completion after a strictly earlier view.
+
+```powershell
+python -m pip install -r requirements.txt
+python scripts/import_data.py
+python scripts/compare_campaigns.py
+python -m unittest discover -s tests -v
+```
+
+Each contrast keeps eligible deliveries with seven days of pre-offer history and receipt waves represented in both arms. A delivery-level difference-in-proportions model uses customer-clustered standard errors and Student t inference. Holm correction covers the three overall tests and separately the 21 exploratory segment tests. Displayed 95% intervals are individual intervals. The report documents the terms, sample sizes, directions, uncertainty, and interpretation.
+
+The script writes the findings report and [aggregate statistical results](results/campaign_comparisons.json), including source manifests and package versions. The JSON contains aggregate counts and estimates. The 27 regression tests include a direct sandwich-variance cross-check, repeated-customer behavior, arm reversal, common receipt waves, Holm correction, and degenerate inputs.
 
 ## Planned work
 
-1. Compare campaigns with hypothesis tests.
-2. Build a Metabase dashboard using Docker and write a one-page growth memo.
+1. Build a Metabase dashboard using Docker and write a one-page growth memo.
 
 Future ML applications include personalized offer targeting and repeat-purchase prediction, following completion of the analytics work.
 

@@ -61,7 +61,7 @@ def read_sources(data_dir):
 
 
 def validate(connection):
-    for filename in ("003_validation.sql", "007_funnel_validation.sql", "010_retention_rfm_validation.sql"):
+    for filename in ("003_validation.sql", "007_funnel_validation.sql", "010_retention_rfm_validation.sql", "012_campaign_validation.sql"):
         checks = connection.execute(
             (PROJECT_DIR / "sql" / filename).read_text(encoding="utf-8")
         ).fetchall()
@@ -79,6 +79,7 @@ def import_data(data_dir, env_file):
         connection.execute((PROJECT_DIR / "sql" / "001_schema.sql").read_text(encoding="utf-8"))
         connection.execute((PROJECT_DIR / "sql" / "005_offer_funnel.sql").read_text(encoding="utf-8"))
         connection.execute((PROJECT_DIR / "sql" / "008_retention_rfm.sql").read_text(encoding="utf-8"))
+        connection.execute((PROJECT_DIR / "sql" / "011_campaign_inputs.sql").read_text(encoding="utf-8"))
         previous = connection.execute("SELECT manifest FROM loyalty.ingestion_batches").fetchall()
         if previous:
             if len(previous) != 1 or previous[0][0] != manifest:

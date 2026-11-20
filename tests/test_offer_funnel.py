@@ -32,7 +32,7 @@ class DatabaseTestCase(unittest.TestCase):
         cls.addClassCleanup(drop_test_database, settings, name)
         cls.connection = psycopg.connect(**dict(settings, dbname=name), row_factory=dict_row)
         cls.addClassCleanup(cls.connection.close)
-        for filename in ("001_schema.sql", "005_offer_funnel.sql", "008_retention_rfm.sql"):
+        for filename in ("001_schema.sql", "005_offer_funnel.sql", "008_retention_rfm.sql", "011_campaign_inputs.sql"):
             cls.connection.execute((PROJECT_DIR / "sql" / filename).read_text(encoding="utf-8"))
         cls.connection.commit()
 
