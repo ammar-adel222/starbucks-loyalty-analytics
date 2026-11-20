@@ -20,8 +20,8 @@ REQUIRED_KEYS = {
 }
 
 
-def connection_settings(env_file):
-    """Read Compose-compatible settings without printing the connection secret."""
+def project_settings(env_file):
+    """Read local settings, with environment variables taking precedence."""
     settings = {}
     if env_file.is_file():
         for line in env_file.read_text(encoding="utf-8-sig").splitlines():
@@ -32,6 +32,12 @@ def connection_settings(env_file):
                     raise ValueError(f"Invalid setting in {env_file.name}.")
                 settings[key.strip()] = value.strip().strip("\"'")
     settings.update(os.environ)
+    return settings
+
+
+def connection_settings(env_file):
+    """Read PostgreSQL settings without printing the connection secret."""
+    settings = project_settings(env_file)
     password = settings.get("POSTGRES_PASSWORD")
     if not password:
         raise ValueError("Set POSTGRES_PASSWORD in .env or the environment.")
@@ -80,6 +86,7 @@ def import_data(data_dir, env_file):
         connection.execute((PROJECT_DIR / "sql" / "005_offer_funnel.sql").read_text(encoding="utf-8"))
         connection.execute((PROJECT_DIR / "sql" / "008_retention_rfm.sql").read_text(encoding="utf-8"))
         connection.execute((PROJECT_DIR / "sql" / "011_campaign_inputs.sql").read_text(encoding="utf-8"))
+        connection.execute((PROJECT_DIR / "sql" / "013_reporting.sql").read_text(encoding="utf-8"))
         previous = connection.execute("SELECT manifest FROM loyalty.ingestion_batches").fetchall()
         if previous:
             if len(previous) != 1 or previous[0][0] != manifest:

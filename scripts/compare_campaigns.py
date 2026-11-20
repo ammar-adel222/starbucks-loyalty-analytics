@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 import statsmodels
 import statsmodels.api as sm
 from statsmodels.stats.multitest import multipletests
@@ -136,6 +137,31 @@ def p_text(value):
     return "<0.0001" if value < 0.0001 else f"{value:.4f}"
 
 
+def persist_results(result, settings):
+    """Publish a complete result set for Metabase, tied to the current import."""
+    with psycopg.connect(**settings) as connection:
+        connection.execute("SELECT pg_advisory_xact_lock(hashtext('loyalty_campaign_results'))")
+        manifests = connection.execute("SELECT manifest FROM loyalty.ingestion_batches ORDER BY imported_at").fetchall()
+        if [row[0] for row in manifests] != result["source_manifests"]:
+            raise ValueError("The import changed during analysis. Rerun campaign comparisons.")
+        connection.execute("DELETE FROM loyalty.campaign_comparison_results")
+        for scope, rows in (("overall", result["overall"]), ("exploratory", result["exploratory"])):
+            for row in rows:
+                connection.execute(
+                    """INSERT INTO loyalty.campaign_comparison_results
+                    (comparison_scope,pair_number,rfm_segment,offer_a,offer_b,deliveries_a,deliveries_b,
+                     completed_a,completed_b,rate_a_pct,rate_b_pct,difference_pp,ci95_low_pp,ci95_high_pp,
+                     p_value,p_holm,reject_holm_05,customer_clusters,common_waves,status,source_manifests) VALUES
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (scope, row["pair"], row.get("rfm_segment", "All eligible customers"),
+                     row["offer_a"], row["offer_b"], row["deliveries_a"], row["deliveries_b"],
+                     row["completed_a"], row["completed_b"], row["rate_a_pct"], row["rate_b_pct"],
+                     row["difference_pp"], row["ci95_low_pp"], row["ci95_high_pp"], row["p_value"],
+                     row["p_holm"], row["reject_holm_05"], row["customer_clusters"],
+                     row["common_waves"], row["status"], Jsonb(result["source_manifests"])),
+                )
+
+
 def render_report(pairs, main, exploratory):
     lines = [
         "# Campaign package comparisons",
@@ -199,7 +225,7 @@ def render_report(pairs, main, exploratory):
         "",
         f"Holm correction controls the tested family at 5% across {len(main)} overall contrasts and separately across {len(exploratory)} exploratory segment contrasts. The displayed 95% intervals are individual intervals. Holm-adjusted p-values determine the multiple-testing decisions. Non-estimable contrasts retain their place in the family with p=1 for adjustment and an empty reported p-value.",
         "",
-        "Run `python scripts/import_data.py`, then `python scripts/compare_campaigns.py`. The script reads `loyalty.campaign_comparison_inputs` and writes this report plus aggregate results to `results/campaign_comparisons.json`. Input rows keep one record per delivery. Both arms retain the existing offer-expiry and ambiguity rules.",
+        "Run `python scripts/import_data.py`, then `python scripts/compare_campaigns.py`. The script reads `loyalty.campaign_comparison_inputs`, refreshes `loyalty.campaign_comparison_results` for the dashboard, and writes this report plus aggregate results to `results/campaign_comparisons.json`. Input rows keep one record per delivery. Both arms retain the existing offer-expiry and ambiguity rules.",
         "",
         "The implemented methods follow the statsmodels documentation for [clustered covariance](https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.RegressionResults.get_robustcov_results.html) and [Holm correction](https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.multipletests.html).",
         "", "## Source offer identifiers", "",
@@ -234,6 +260,7 @@ def main():
             "versions": {"numpy": np.__version__, "pandas": pd.__version__, "statsmodels": statsmodels.__version__},
         }
         report = render_report(pairs, overall, exploratory)
+        persist_results(result, connection_settings(args.env_file))
         result_dir, doc_dir = PROJECT_DIR / "results", PROJECT_DIR / "docs"
         result_dir.mkdir(exist_ok=True)
         doc_dir.mkdir(exist_ok=True)

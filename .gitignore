@@ -15,3 +15,5 @@ venv/
 .env
 .env.*
 !.env.example
+.metabase-state.json
+/tmp/

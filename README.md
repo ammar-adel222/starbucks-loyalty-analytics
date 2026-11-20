@@ -1,6 +1,6 @@
 # Starbucks Loyalty Analytics
 
-An exploration of the simulated Starbucks Rewards dataset used in the Udacity data science capstone, with a planned PostgreSQL and Metabase analysis of offer engagement, purchasing, retention, and customer segments.
+Growth analytics for the simulated Starbucks Rewards dataset used in the Udacity data science capstone, using PostgreSQL and Metabase to analyze offer engagement, purchasing, retention, and customer segments.
 
 PostgreSQL now stores the original JSON records and normalized customers, offers, channels, and events. The `loyalty.event_details` view connects events to customer profiles and offer definitions through their IDs.
 
@@ -28,7 +28,7 @@ On a fresh checkout, create your local configuration:
 Copy-Item .env.example .env
 ```
 
-Set `POSTGRES_PASSWORD` in `.env` to a local password. Keep `.env` local. It is excluded from Git. The importer reads simple `KEY=value` settings from this file; environment variables take precedence. If port 5432 is occupied, set `POSTGRES_PORT` to an available port.
+Set the password fields in `.env` to strong local values and set `METABASE_ADMIN_EMAIL` to the email used for your local Metabase sign-in. Keep `.env` local. It is excluded from Git. The importer reads simple `KEY=value` settings from this file; environment variables take precedence. Single-quote a password containing `$` so Docker Compose treats it literally. If port 5432 is occupied, set `POSTGRES_PORT` to an available port.
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -75,12 +75,13 @@ All project tables and views are in the `loyalty` schema.
 | `customer_rfm_before_offers` | One customer and receipt hour, with preceding seven-day activity |
 | `offer_funnel_by_rfm` | One pre-offer segment and offer, with campaign denominators and rates |
 | `campaign_comparison_inputs` | One eligible reward-bearing delivery for statistical comparison |
+| `campaign_comparison_results` | One overall or exploratory statistical contrast, tied to the source import |
 
 `profile.id` and `transcript.person` become `customer_id`. `portfolio.id` and either offer-ID payload spelling become `offer_id`. Source age 118 becomes an unknown cleaned age while `age_raw` preserves the original value. Missing demographics remain SQL `NULL`. Amounts use `NUMERIC`, offer duration uses days, and event time uses hours from the observation start.
 
 Transactions carry a customer and purchase amount. Their offer ID is `NULL`, so the joined view uses a left join to offers. Source event repetitions are retained and individually traceable. The channel bridge is queried separately or aggregated to avoid multiplying events.
 
-The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), funnel checks (`007`), retention/RFM views (`008`), customer-growth queries (`009`), customer-growth checks (`010`), campaign comparison inputs (`011`), and campaign input checks (`012`). The importer applies the schema and analytics views, loads new data when needed, and runs all four sets of checks. Rerun it to add analytics to an existing import.
+The SQL files define the schema (`001`), transformations (`002`), import checks (`003`), example joins (`004`), funnel views (`005`), funnel queries (`006`), funnel checks (`007`), retention/RFM views (`008`), customer-growth queries (`009`), customer-growth checks (`010`), campaign comparison inputs (`011`), campaign input checks (`012`), and dashboard reporting storage (`013`). The importer applies the schema and analytics views, loads new data when needed, and runs all four sets of checks. Rerun it to add analytics to an existing import.
 
 ## Delivery-level offer funnel
 
@@ -147,11 +148,48 @@ python -m unittest discover -s tests -v
 
 Each contrast keeps eligible deliveries with seven days of pre-offer history and receipt waves represented in both arms. A delivery-level difference-in-proportions model uses customer-clustered standard errors and Student t inference. Holm correction covers the three overall tests and separately the 21 exploratory segment tests. Displayed 95% intervals are individual intervals. The report documents the terms, sample sizes, directions, uncertainty, and interpretation.
 
-The script writes the findings report and [aggregate statistical results](results/campaign_comparisons.json), including source manifests and package versions. The JSON contains aggregate counts and estimates. The 27 regression tests include a direct sandwich-variance cross-check, repeated-customer behavior, arm reversal, common receipt waves, Holm correction, and degenerate inputs.
+The script writes the findings report and [aggregate statistical results](results/campaign_comparisons.json), including source manifests and package versions. It also replaces the dashboard's statistical result set in one database transaction after checking that the source import matches. The JSON contains aggregate counts and estimates. Statistical regression tests include a direct sandwich-variance cross-check, repeated-customer behavior, arm reversal, common receipt waves, Holm correction, and degenerate inputs.
 
-## Planned work
+## Metabase dashboard
 
-1. Build a Metabase dashboard using Docker and write a one-page growth memo.
+Docker Compose runs PostgreSQL, Metabase Open Source v0.65.6.2, and a separate PostgreSQL application database for Metabase. Both databases use named persistent volumes. The analytics connection uses a read-only `metabase_reader` account. Credentials are stored in the ignored `.env` file. Changing those credentials after initial database creation requires updating the corresponding database account.
+
+After importing the data and generating campaign comparisons, create or refresh the dashboard:
+
+```powershell
+docker compose up -d
+python scripts/import_data.py
+python scripts/compare_campaigns.py
+python scripts/setup_metabase.py --verify
+python scripts/build_growth_memo.py
+```
+
+Open [Metabase locally](http://localhost:3000) and sign in with `METABASE_ADMIN_EMAIL` and `METABASE_ADMIN_PASSWORD` from `.env`. `METABASE_PORT` changes the local port. The setup script prints the dashboard URL and stores its local resource IDs in the ignored `.metabase-state.json` file.
+
+The dashboard has 18 query cards across four tabs:
+
+| Tab | Business questions |
+|---|---|
+| Overview | How much purchasing occurred, how did the offer funnel perform, and which deliveries qualify? |
+| Offers | How do offer terms, types, and channel combinations compare? |
+| Customers and retention | Which customer groups contribute purchasing, and do purchase cohorts return? |
+| Campaign comparisons | What are the observed package differences and their statistical uncertainty? |
+
+Offer type filters apply to offer cards and accept `bogo`, `discount`, or `informational`. Pre-offer segment filters apply to the response and exploratory comparison tables. Enter an exact value, such as `Frequent recent`, and press Enter to apply a text filter. Dataset KPIs and snapshot customer segments cover the full observation. The dashboard notes explain each scope. Retention shading uses a fixed 0-100% scale, with incomplete periods left blank. Campaign tables show individual 95% intervals and Holm-adjusted p-values.
+
+The [dashboard specification](metabase/dashboard.json) stores SQL, chart settings, notes, and layout. Rerunning setup updates the managed collection's cards and dashboard, retaining their IDs. `--verify` compares every unfiltered and filtered card result with direct PostgreSQL results. The regression suite also checks layout overlap and SQL parameter binding.
+
+![Metabase overview with the discount offer filter](output/metabase/overview.png)
+
+Additional previews show [offers](output/metabase/offers.png), [customers and retention](output/metabase/customers-and-retention.png), and [campaign comparisons](output/metabase/campaign-comparisons.png).
+
+## One-page growth memo
+
+The [growth recommendations PDF](output/pdf/growth_recommendations.pdf) prioritizes a controlled package test, re-engagement of previously active customers, and investigation of completions without recorded views. It uses the validated database and source-matched campaign results. Rebuild it with `python scripts/build_growth_memo.py`.
+
+Run the full regression suite with `python -m unittest discover -s tests -v`.
+
+## Future ML applications
 
 Future ML applications include personalized offer targeting and repeat-purchase prediction, following completion of the analytics work.
 

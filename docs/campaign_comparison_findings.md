@@ -79,7 +79,7 @@ An OLS model with an intercept and offer-B indicator estimates the delivery-weig
 
 Holm correction controls the tested family at 5% across 3 overall contrasts and separately across 21 exploratory segment contrasts. The displayed 95% intervals are individual intervals. Holm-adjusted p-values determine the multiple-testing decisions. Non-estimable contrasts retain their place in the family with p=1 for adjustment and an empty reported p-value.
 
-Run `python scripts/import_data.py`, then `python scripts/compare_campaigns.py`. The script reads `loyalty.campaign_comparison_inputs` and writes this report plus aggregate results to `results/campaign_comparisons.json`. Input rows keep one record per delivery. Both arms retain the existing offer-expiry and ambiguity rules.
+Run `python scripts/import_data.py`, then `python scripts/compare_campaigns.py`. The script reads `loyalty.campaign_comparison_inputs`, refreshes `loyalty.campaign_comparison_results` for the dashboard, and writes this report plus aggregate results to `results/campaign_comparisons.json`. Input rows keep one record per delivery. Both arms retain the existing offer-expiry and ambiguity rules.
 
 The implemented methods follow the statsmodels documentation for [clustered covariance](https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.RegressionResults.get_robustcov_results.html) and [Holm correction](https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.multipletests.html).
 

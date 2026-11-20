@@ -1,0 +1,394 @@
+{
+  "name": "Starbucks Rewards Growth",
+  "collection": "Starbucks loyalty analytics",
+  "description": "Offer engagement, purchase retention, customer value and campaign evidence from the simulated Rewards observation period.",
+  "tabs": [
+    "Overview",
+    "Offers",
+    "Customers and retention",
+    "Campaign comparisons"
+  ],
+  "cards": [
+    {
+      "key": "customers",
+      "name": "Customers in the dataset",
+      "tab": "Overview",
+      "display": "scalar",
+      "row": 2,
+      "col": 0,
+      "width": 6,
+      "height": 3,
+      "sql": [
+        "SELECT COUNT(*) AS customers FROM loyalty.customers"
+      ],
+      "settings": {
+        "scalar.field": "customers",
+        "scalar.decimals": 0
+      }
+    },
+    {
+      "key": "spend",
+      "name": "Recorded purchase amount",
+      "tab": "Overview",
+      "display": "scalar",
+      "row": 2,
+      "col": 6,
+      "width": 6,
+      "height": 3,
+      "sql": [
+        "SELECT SUM(transaction_amount) AS purchase_amount FROM loyalty.transactions"
+      ],
+      "settings": {
+        "scalar.field": "purchase_amount",
+        "scalar.decimals": 2,
+        "scalar.prefix": "$"
+      }
+    },
+    {
+      "key": "eligible_deliveries",
+      "name": "Eligible offer deliveries",
+      "tab": "Overview",
+      "display": "scalar",
+      "row": 2,
+      "col": 12,
+      "width": 6,
+      "height": 3,
+      "sql": [
+        "SELECT COUNT(*) AS eligible_deliveries FROM loyalty.offer_deliveries WHERE eligible_for_rates"
+      ],
+      "settings": {
+        "scalar.field": "eligible_deliveries",
+        "scalar.decimals": 0
+      }
+    },
+    {
+      "key": "next_week_retention",
+      "name": "Following-week purchase retention",
+      "tab": "Overview",
+      "display": "scalar",
+      "row": 2,
+      "col": 18,
+      "width": 6,
+      "height": 3,
+      "sql": [
+        "SELECT ROUND(100.0*SUM(active_customers)/SUM(cohort_customers),2) AS retention_pct",
+        "FROM loyalty.weekly_purchase_retention WHERE weeks_since_first_purchase=1"
+      ],
+      "settings": {
+        "scalar.field": "retention_pct",
+        "scalar.decimals": 2,
+        "scalar.suffix": "%"
+      }
+    },
+    {
+      "key": "daily_spend",
+      "name": "Purchases over the observation period",
+      "tab": "Overview",
+      "display": "line",
+      "row": 5,
+      "col": 0,
+      "width": 12,
+      "height": 7,
+      "sql": [
+        "SELECT time_hours/24 AS observation_day,SUM(transaction_amount) AS purchase_amount",
+        "FROM loyalty.transactions GROUP BY observation_day ORDER BY observation_day"
+      ],
+      "settings": {
+        "graph.dimensions": [
+          "observation_day"
+        ],
+        "graph.metrics": [
+          "purchase_amount"
+        ],
+        "graph.colors": [
+          "#00754A"
+        ],
+        "graph.x_axis.title_text": "Observation day from zero",
+        "graph.y_axis.title_text": "Recorded purchase amount ($)"
+      }
+    },
+    {
+      "key": "reward_funnel",
+      "name": "Reward-bearing delivery funnel",
+      "tab": "Overview",
+      "display": "funnel",
+      "row": 5,
+      "col": 12,
+      "width": 12,
+      "height": 7,
+      "sql": [
+        "WITH eligible AS (SELECT * FROM loyalty.offer_deliveries WHERE eligible_for_rates AND offer_type<>'informational'",
+        "[[AND offer_type={{offer_type}}]]), stages AS (",
+        "SELECT 1 AS position,'Eligible deliveries' AS stage,COUNT(*) AS deliveries FROM eligible",
+        "UNION ALL SELECT 2,'Viewed',COUNT(*) FROM eligible WHERE was_viewed",
+        "UNION ALL SELECT 3,'Completed after view',COUNT(*) FROM eligible WHERE completion_status='view_before_completion')",
+        "SELECT stage,deliveries FROM stages ORDER BY position"
+      ],
+      "settings": {
+        "funnel.dimension": "stage",
+        "funnel.metric": "deliveries"
+      }
+    },
+    {
+      "key": "completion_timing",
+      "name": "First completion and recorded views",
+      "tab": "Overview",
+      "display": "table",
+      "row": 12,
+      "col": 0,
+      "width": 12,
+      "height": 6,
+      "sql": [
+        "SELECT INITCAP(REPLACE(completion_status,'_',' ')) AS \"Completion timing\",COUNT(*) AS \"Deliveries\"",
+        "FROM loyalty.offer_deliveries WHERE eligible_for_rates AND offer_type<>'informational'",
+        "[[AND offer_type={{offer_type}}]]",
+        "GROUP BY completion_status ORDER BY COUNT(*) DESC"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "coverage",
+      "name": "Delivery coverage and exclusions",
+      "tab": "Overview",
+      "display": "table",
+      "row": 12,
+      "col": 12,
+      "width": 12,
+      "height": 6,
+      "sql": [
+        "SELECT CASE WHEN NOT full_window_observed THEN 'Incomplete follow-up'",
+        "WHEN NOT eligible_for_rates THEN 'Ambiguous matching with full follow-up' ELSE 'Eligible for rates' END AS \"Coverage\",COUNT(*) AS \"Deliveries\"",
+        "FROM loyalty.offer_deliveries GROUP BY 1 ORDER BY COUNT(*) DESC"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "offer_type_rates",
+      "name": "View and completion rates by offer type",
+      "tab": "Offers",
+      "display": "bar",
+      "row": 2,
+      "col": 0,
+      "width": 12,
+      "height": 7,
+      "sql": [
+        "SELECT offer_type AS \"Offer type\",ROUND(100.0*SUM(viewed_deliveries)/NULLIF(SUM(eligible_deliveries),0),2) AS \"Viewed (%)\",",
+        "ROUND(100.0*SUM(completed_after_view)/NULLIF(SUM(eligible_reward_deliveries),0),2) AS \"Completed after view (%)\"",
+        "FROM loyalty.offer_funnel_by_offer [[WHERE offer_type={{offer_type}}]] GROUP BY offer_type ORDER BY offer_type"
+      ],
+      "settings": {
+        "graph.dimensions": [
+          "Offer type"
+        ],
+        "graph.metrics": [
+          "Viewed (%)",
+          "Completed after view (%)"
+        ],
+        "graph.colors": [
+          "#00754A",
+          "#B78737"
+        ],
+        "graph.y_axis.title_text": "Percent of eligible deliveries",
+        "graph.x_axis.title_text": "Offer type"
+      }
+    },
+    {
+      "key": "channel_combinations",
+      "name": "Offer channel combinations",
+      "tab": "Offers",
+      "display": "table",
+      "row": 2,
+      "col": 12,
+      "width": 12,
+      "height": 7,
+      "sql": [
+        "SELECT offer_type AS \"Offer type\",channel_combination AS \"Channels\",SUM(eligible_deliveries) AS \"Eligible deliveries\",",
+        "ROUND(100.0*SUM(viewed_deliveries)/NULLIF(SUM(eligible_deliveries),0),2) AS \"Viewed (%)\",",
+        "ROUND(100.0*SUM(completed_after_view)/NULLIF(SUM(eligible_reward_deliveries),0),2) AS \"After view (%)\"",
+        "FROM loyalty.offer_funnel_by_offer [[WHERE offer_type={{offer_type}}]] GROUP BY offer_type,channel_combination ORDER BY offer_type,channel_combination"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "offer_catalog",
+      "name": "Offer terms and delivery outcomes",
+      "tab": "Offers",
+      "display": "table",
+      "row": 9,
+      "col": 0,
+      "width": 24,
+      "height": 8,
+      "sql": [
+        "SELECT LEFT(offer_id,8) AS \"Offer\",offer_type AS \"Type\",difficulty AS \"Spend ($)\",reward AS \"Reward ($)\",duration_days AS \"Days\",",
+        "channel_combination AS \"Channels\",eligible_deliveries AS \"Eligible deliveries\",view_rate_pct AS \"Viewed (%)\",",
+        "any_completion_rate_pct AS \"Completed (%)\",completion_after_view_rate_pct AS \"After view (%)\" FROM loyalty.offer_funnel_by_offer",
+        "[[WHERE offer_type={{offer_type}}]] ORDER BY offer_type,difficulty,duration_days"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "matching_audit",
+      "name": "Offer-event matching audit",
+      "tab": "Offers",
+      "display": "table",
+      "row": 17,
+      "col": 0,
+      "width": 24,
+      "height": 6,
+      "sql": [
+        "SELECT m.event_type AS \"Event\",m.match_status AS \"Matching status\",COUNT(*) AS \"Events\",",
+        "COUNT(*) FILTER(WHERE m.expiry_boundary_count>0) AS \"At expiry\"",
+        "FROM loyalty.offer_event_matches AS m JOIN loyalty.offers AS o USING(offer_id)",
+        "[[WHERE o.offer_type={{offer_type}}]] GROUP BY m.event_type,m.match_status ORDER BY m.event_type,m.match_status"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "rfm_snapshot",
+      "name": "Customer value at the end of observation",
+      "tab": "Customers and retention",
+      "display": "table",
+      "row": 2,
+      "col": 0,
+      "width": 24,
+      "height": 7,
+      "sql": [
+        "SELECT rfm_segment AS \"Segment\",customers AS \"Customers\",purchases AS \"Purchases\",total_spend AS \"Purchase amount ($)\",",
+        "spend_share_pct AS \"Amount share (%)\",spend_per_customer AS \"Amount / customer ($)\",avg_recency_days AS \"Days since purchase\"",
+        "FROM loyalty.rfm_segment_summary ORDER BY total_spend DESC"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "retention_cohorts",
+      "name": "Purchase retention by first observed purchase week",
+      "tab": "Customers and retention",
+      "display": "table",
+      "row": 9,
+      "col": 0,
+      "width": 14,
+      "height": 7,
+      "sql": [
+        "SELECT c.cohort_week AS \"First purchase week\",COUNT(DISTINCT c.customer_id) AS \"Customers\",",
+        "MAX(r.retention_rate_pct) FILTER(WHERE r.weeks_since_first_purchase=0) AS \"Week 0 (%)\",",
+        "MAX(r.retention_rate_pct) FILTER(WHERE r.weeks_since_first_purchase=1) AS \"Week 1 (%)\",",
+        "MAX(r.retention_rate_pct) FILTER(WHERE r.weeks_since_first_purchase=2) AS \"Week 2 (%)\",",
+        "MAX(r.retention_rate_pct) FILTER(WHERE r.weeks_since_first_purchase=3) AS \"Week 3 (%)\"",
+        "FROM loyalty.customer_purchase_cohorts AS c LEFT JOIN loyalty.weekly_purchase_retention AS r USING(cohort_week)",
+        "GROUP BY c.cohort_week ORDER BY c.cohort_week"
+      ],
+      "settings": {
+        "table.column_formatting": [
+          {
+            "columns": [
+              "Week 0 (%)",
+              "Week 1 (%)",
+              "Week 2 (%)",
+              "Week 3 (%)"
+            ],
+            "type": "range",
+            "colors": [
+              "#F0F7F3",
+              "#00754A"
+            ],
+            "min_type": "custom",
+            "max_type": "custom",
+            "min_value": 0,
+            "max_value": 100
+          }
+        ]
+      }
+    },
+    {
+      "key": "cohort_sizes",
+      "name": "Purchasing customers by first observed week",
+      "tab": "Customers and retention",
+      "display": "bar",
+      "row": 9,
+      "col": 14,
+      "width": 10,
+      "height": 7,
+      "sql": [
+        "SELECT cohort_week,COUNT(*) AS customers FROM loyalty.customer_purchase_cohorts GROUP BY cohort_week ORDER BY cohort_week"
+      ],
+      "settings": {
+        "graph.dimensions": [
+          "cohort_week"
+        ],
+        "graph.metrics": [
+          "customers"
+        ],
+        "graph.colors": [
+          "#00754A"
+        ],
+        "graph.x_axis.title_text": "First observed purchase week",
+        "graph.y_axis.title_text": "Customers"
+      }
+    },
+    {
+      "key": "preoffer_response",
+      "name": "Offer response by customer segment before receipt",
+      "tab": "Customers and retention",
+      "display": "table",
+      "row": 16,
+      "col": 0,
+      "width": 24,
+      "height": 9,
+      "sql": [
+        "SELECT rfm_segment AS \"Pre-offer segment\",offer_type AS \"Offer type\",SUM(eligible_deliveries) AS \"Eligible deliveries\",",
+        "ROUND(100.0*SUM(viewed_deliveries)/NULLIF(SUM(eligible_deliveries),0),2) AS \"Viewed (%)\",",
+        "ROUND(100.0*SUM(completed_after_view)/NULLIF(SUM(eligible_reward_deliveries),0),2) AS \"After view (%)\"",
+        "FROM loyalty.offer_funnel_by_rfm WHERE rfm_segment<>'Insufficient history'",
+        "[[AND offer_type={{offer_type}}]] [[AND rfm_segment={{rfm_segment}}]]",
+        "GROUP BY rfm_segment,offer_type ORDER BY rfm_segment,offer_type"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "overall_tests",
+      "name": "Overall package comparisons with customer-clustered uncertainty",
+      "tab": "Campaign comparisons",
+      "display": "table",
+      "row": 2,
+      "col": 0,
+      "width": 24,
+      "height": 4,
+      "sql": [
+        "SELECT r.pair_number AS \"Pair\",INITCAP(a.offer_type)||' $'||a.difficulty||' / $'||a.reward AS \"Spend / reward\",",
+        "a.duration_days||' / '||b.duration_days AS \"Days A / B\",r.deliveries_a AS \"Deliveries A\",ROUND(r.rate_a_pct::NUMERIC,2) AS \"Rate A (%)\",",
+        "r.deliveries_b AS \"Deliveries B\",ROUND(r.rate_b_pct::NUMERIC,2) AS \"Rate B (%)\",ROUND(r.difference_pp::NUMERIC,2) AS \"B - A (pp)\",",
+        "ROUND(r.ci95_low_pp::NUMERIC,2)||' to '||ROUND(r.ci95_high_pp::NUMERIC,2) AS \"95% CI (pp)\",",
+        "CASE WHEN r.p_holm<0.0001 THEN '<0.0001' ELSE TO_CHAR(r.p_holm,'FM0.0000') END AS \"Holm p\"",
+        "FROM loyalty.campaign_comparison_results AS r JOIN loyalty.offers AS a ON a.offer_id=r.offer_a JOIN loyalty.offers AS b ON b.offer_id=r.offer_b",
+        "WHERE r.comparison_scope='overall' [[AND a.offer_type={{offer_type}}]] ORDER BY r.pair_number"
+      ],
+      "settings": {}
+    },
+    {
+      "key": "segment_tests",
+      "name": "Exploratory segment comparisons",
+      "tab": "Campaign comparisons",
+      "display": "table",
+      "row": 6,
+      "col": 0,
+      "width": 24,
+      "height": 11,
+      "sql": [
+        "SELECT r.pair_number AS \"Pair\",r.rfm_segment AS \"Pre-offer segment\",r.deliveries_a AS \"Deliveries A\",ROUND(r.rate_a_pct::NUMERIC,2) AS \"Rate A (%)\",",
+        "r.deliveries_b AS \"Deliveries B\",ROUND(r.rate_b_pct::NUMERIC,2) AS \"Rate B (%)\",ROUND(r.difference_pp::NUMERIC,2) AS \"B - A (pp)\",",
+        "ROUND(r.ci95_low_pp::NUMERIC,2)||' to '||ROUND(r.ci95_high_pp::NUMERIC,2) AS \"95% CI (pp)\",",
+        "CASE WHEN r.p_holm<0.0001 THEN '<0.0001' ELSE TO_CHAR(r.p_holm,'FM0.0000') END AS \"Holm p\"",
+        "FROM loyalty.campaign_comparison_results AS r JOIN loyalty.offers AS a ON a.offer_id=r.offer_a",
+        "WHERE r.comparison_scope='exploratory' [[AND a.offer_type={{offer_type}}]] [[AND r.rfm_segment={{rfm_segment}}]]",
+        "ORDER BY r.pair_number,r.rfm_segment"
+      ],
+      "settings": {}
+    }
+  ],
+  "notes": {
+    "Overview": "Dataset totals cover the simulated observation, hours 0-714. Offer type filters offer charts. Pre-offer segment filters response and exploratory comparisons. The funnel uses eligible reward-bearing deliveries. Same-hour ordering is unknown. The final observation day is partial.",
+    "Offers": "Rates use fully observed, unambiguous deliveries. Expiry is inclusive. Informational offers use view rates. Channel combinations describe distribution at the offer level.",
+    "Customers and retention": "Snapshot RFM uses all recorded purchases. Recent means within 72 hours. Quartile cutoffs are 11 purchases and $150.94. Response segments use seven days strictly before receipt. Retention weeks start at hour zero. Blank cells have incomplete observation.",
+    "Campaign comparisons": "Differences are B minus A in percentage points. A has the shorter duration. Duration and channels change together. Each pair uses shared receipt waves and seven days of prior history. Customer-clustered 95% intervals are individual intervals. Holm p-values adjust three overall and 21 exploratory tests separately."
+  }
+}
